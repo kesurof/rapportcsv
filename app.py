@@ -293,7 +293,8 @@ def create_excel_file(dataframe, analysis_df=None):
             worksheet = writer.sheets['Moyenne conso DATA']
             
             # Appliquer le format pour les colonnes de total et moyennes (colonnes F, G, H)
-            nombre_format = '# ##0,000\ "Go"'
+            # Correction de la séquence d'échappement
+            nombre_format = r'# ##0,000\ "Go"'
             
             # Trouver les indices des colonnes Total et Moyenne
             total_col = None
