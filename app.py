@@ -355,57 +355,31 @@ def parse_volume_text(vol_str):
         if pd.isna(vol_str) or vol_str == "":
             return 0
         
+        # Pour déboguer et comprendre le problème
+        # st.write(f"Conversion de: '{vol_str}'")
+        
+        # Approche plus robuste pour extraire les nombres et unités
+        parts = str(vol_str).split()
         total_go = 0
         
-        # Gérer différents formats possibles
-        if "Go" in vol_str and "Mo" in vol_str and "Ko" in vol_str:
-            parts = vol_str.split()
-            go_idx = parts.index("Go")
-            mo_idx = parts.index("Mo")
-            ko_idx = parts.index("Ko")
-            
-            go = float(parts[go_idx-1]) if go_idx > 0 else 0
-            mo = float(parts[mo_idx-1]) if mo_idx > 0 else 0
-            ko = float(parts[ko_idx-1]) if ko_idx > 0 else 0
-            
-            total_go = go + mo/1024 + ko/(1024*1024)
-        
-        elif "Go" in vol_str and "Mo" in vol_str:
-            parts = vol_str.split()
-            go_idx = parts.index("Go")
-            mo_idx = parts.index("Mo")
-            
-            go = float(parts[go_idx-1]) if go_idx > 0 else 0
-            mo = float(parts[mo_idx-1]) if mo_idx > 0 else 0
-            
-            total_go = go + mo/1024
-        
-        elif "Go" in vol_str:
-            parts = vol_str.split()
-            go_idx = parts.index("Go")
-            go = float(parts[go_idx-1]) if go_idx > 0 else 0
-            total_go = go
-        
-        elif "Mo" in vol_str:
-            parts = vol_str.split()
-            mo_idx = parts.index("Mo")
-            mo = float(parts[mo_idx-1]) if mo_idx > 0 else 0
-            total_go = mo/1024
-            
-        elif "Ko" in vol_str:
-            parts = vol_str.split()
-            ko_idx = parts.index("Ko")
-            ko = float(parts[ko_idx-1]) if ko_idx > 0 else 0
-            total_go = ko/(1024*1024)
-        
-        else:
+        # Parcourir les parties par paires (nombre, unité)
+        for i in range(0, len(parts) - 1, 2):
             try:
-                total_go = float(vol_str)
-            except:
-                return 0
+                value = float(parts[i])
+                unit = parts[i + 1]
                 
+                if unit == "Go":
+                    total_go += value
+                elif unit == "Mo":
+                    total_go += value / 1024
+                elif unit == "Ko":
+                    total_go += value / (1024 * 1024)
+            except (ValueError, IndexError):
+                continue
+        
         return total_go
-    except:
+    except Exception as e:
+        # st.write(f"Erreur lors de la conversion: {e}")
         return 0
 
 def main():
