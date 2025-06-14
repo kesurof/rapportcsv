@@ -4,7 +4,18 @@ import pandas as pd
 import streamlit as st
 
 def upload_zip_files():
-    uploaded_files = st.file_uploader("Déposez vos fichiers ZIP ici", type=["zip"], accept_multiple_files=True)
+    """
+    Composant pour uploader des fichiers ZIP contenant des CSV
+    """
+    st.subheader("📁 Zone de dépôt des fichiers")
+    
+    uploaded_files = st.file_uploader(
+        "Glissez-déposez vos fichiers ZIP ici",
+        type=['zip'],
+        accept_multiple_files=True,
+        help="Uploadez un ou plusieurs fichiers ZIP contenant des fichiers CSV"
+    )
+    
     return uploaded_files
 
 def extract_csv_from_zip(zip_file):
