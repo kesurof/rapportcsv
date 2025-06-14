@@ -82,6 +82,18 @@ def analyser_consommation_data(df):
     # Extraire le mois et l'année au format "mois-aa" en utilisant .loc
     filtered_df.loc[:, "Mois-Année"] = filtered_df["Date de facturation"].dt.strftime("%B-%y")
     
+    # Traduire les noms des mois en français
+    mois_fr = {
+        'January': 'janvier', 'February': 'février', 'March': 'mars', 
+        'April': 'avril', 'May': 'mai', 'June': 'juin',
+        'July': 'juillet', 'August': 'août', 'September': 'septembre', 
+        'October': 'octobre', 'November': 'novembre', 'December': 'décembre'
+    }
+    
+    # Appliquer la traduction
+    for en, fr in mois_fr.items():
+        filtered_df.loc[:, "Mois-Année"] = filtered_df["Mois-Année"].str.replace(en, fr)
+    
     # Colonnes fixes requises
     required_cols = [
         "Nom de la rubrique de niveau 1",
@@ -275,6 +287,45 @@ def create_excel_file(dataframe, analysis_df=None):
                 sheet_name='Moyenne conso DATA',
                 index=False
             )
+            
+            # Appliquer la mise en forme à la feuille "Moyenne conso DATA"
+            workbook = writer.book
+            worksheet = writer.sheets['Moyenne conso DATA']
+            
+            # Appliquer le format pour les colonnes de total et moyennes (colonnes F, G, H)
+            nombre_format = '# ##0,000\ "Go"'
+            
+            # Trouver les indices des colonnes Total et Moyenne
+            total_col = None
+            moy_4_mois_col = None
+            moy_total_col = None
+            
+            for idx, col in enumerate(analysis_df.columns):
+                if col == "Total (Go)":
+                    total_col = idx
+                elif col == "Moyenne (Go) 4 mois":
+                    moy_4_mois_col = idx
+                elif col == "Moyenne (Go) total":
+                    moy_total_col = idx
+            
+            # Appliquer les formats si les colonnes existent
+            if total_col is not None:
+                for row in range(2, len(analysis_df) + 2):  # +2 car Excel commence à 1 et il y a une ligne d'en-tête
+                    cell = worksheet.cell(row=row, column=total_col + 1)  # +1 car openpyxl commence à 1
+                    cell.number_format = nombre_format
+                    
+            if moy_4_mois_col is not None:
+                for row in range(2, len(analysis_df) + 2):
+                    cell = worksheet.cell(row=row, column=moy_4_mois_col + 1)
+                    cell.number_format = nombre_format
+                    
+            if moy_total_col is not None:
+                for row in range(2, len(analysis_df) + 2):
+                    cell = worksheet.cell(row=row, column=moy_total_col + 1)
+                    cell.number_format = nombre_format
+            
+            # Figer les volets en cellule F2
+            worksheet.freeze_panes = 'F2'
     
     excel_buffer.seek(0)
     return excel_buffer
