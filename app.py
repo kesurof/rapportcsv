@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import zipfile
 import io
+# Ajoutez cette ligne avec les autres imports
+from openpyxl.utils import get_column_letter
 
 st.set_page_config(
     page_title="Fusion et analyse de fichiers CSV",
@@ -283,18 +285,128 @@ def create_excel_file(dataframe, analysis_df=None):
         
         # 2. Feuille d'analyse de consommation DATA (si disponible)
         if analysis_df is not None and not analysis_df.empty:
-            analysis_df.to_excel(
+            # Créer une copie du DataFrame pour la manipulation
+            export_df = analysis_df.copy()
+            
+            # Reconvertir les colonnes de volume formatées en valeurs numériques
+            # pour le tri dans Excel
+            volume_cols = ["Total (Go)", "Moyenne (Go) 4 mois", "Moyenne (Go) total"]
+            
+            for col in volume_cols:
+                if col in export_df.columns:
+                    # Stocker les valeurs formatées dans une colonne temporaire
+                    export_df[f"{col}_formatted"] = export_df[col]
+                    
+                    # Reconvertir les volumes textuels en nombres pour le tri
+                    export_df[col] = export_df[col].apply(lambda x: parse_volume_text(x))
+            
+            # Reconvertir également les colonnes mensuelles
+            month_cols = [col for col in export_df.columns 
+                         if col not in volume_cols + [f"{c}_formatted" for c in volume_cols] 
+                         and col not in ["Nom de la rubrique de niveau 1", "Numéro de l'utilisateur", 
+                                         "Nom de l'utilisateur", "Prénom de l'utilisateur", "Numéro de téléphone"]]
+            
+            for col in month_cols:
+                # Stocker le format texte
+                export_df[f"{col}_formatted"] = export_df[col]
+                # Convertir en nombre
+                export_df[col] = export_df[col].apply(lambda x: parse_volume_text(x))
+            
+            # Exporter le DataFrame vers Excel
+            export_df.to_excel(
                 writer,
                 sheet_name='Moyenne conso DATA',
                 index=False
             )
             
-            # Figer les volets en cellule F2
+            # Appliquer les formats et l'affichage
+            workbook = writer.book
             worksheet = writer.sheets['Moyenne conso DATA']
+            
+            # Figer les volets en cellule F2
             worksheet.freeze_panes = 'F2'
+            
+            # Appliquer un format personnalisé pour afficher les valeurs comme "X Go Y Mo Z Ko"
+            # tout en gardant les valeurs numériques pour le tri
+            custom_format = r'[>=1]0" Go "0" Mo "0" Ko";[>=0.001]0" Mo "0" Ko";0" Ko"'
+            
+            # Appliquer le format aux colonnes numériques
+            for col_idx, col_name in enumerate(export_df.columns):
+                if col_name in volume_cols or col_name in month_cols:
+                    # +1 car openpyxl commence à 1, et pour toutes les lignes sauf l'en-tête
+                    for row in range(2, len(export_df) + 2):
+                        cell = worksheet.cell(row=row, column=col_idx + 1)
+                        cell.number_format = custom_format
+                
+                # Masquer les colonnes formatées
+                if "_formatted" in col_name:
+                    worksheet.column_dimensions[get_column_letter(col_idx + 1)].hidden = True
     
     excel_buffer.seek(0)
     return excel_buffer
+
+# Ajouter cette fonction pour convertir du texte "X Go Y Mo Z Ko" en nombre décimal
+def parse_volume_text(vol_str):
+    """Convertit une chaîne de volume formatée en Go (valeur numérique)"""
+    try:
+        if isinstance(vol_str, (int, float)):
+            return float(vol_str)
+        
+        if pd.isna(vol_str) or vol_str == "":
+            return 0
+        
+        total_go = 0
+        
+        # Gérer différents formats possibles
+        if "Go" in vol_str and "Mo" in vol_str and "Ko" in vol_str:
+            parts = vol_str.split()
+            go_idx = parts.index("Go")
+            mo_idx = parts.index("Mo")
+            ko_idx = parts.index("Ko")
+            
+            go = float(parts[go_idx-1]) if go_idx > 0 else 0
+            mo = float(parts[mo_idx-1]) if mo_idx > 0 else 0
+            ko = float(parts[ko_idx-1]) if ko_idx > 0 else 0
+            
+            total_go = go + mo/1024 + ko/(1024*1024)
+        
+        elif "Go" in vol_str and "Mo" in vol_str:
+            parts = vol_str.split()
+            go_idx = parts.index("Go")
+            mo_idx = parts.index("Mo")
+            
+            go = float(parts[go_idx-1]) if go_idx > 0 else 0
+            mo = float(parts[mo_idx-1]) if mo_idx > 0 else 0
+            
+            total_go = go + mo/1024
+        
+        elif "Go" in vol_str:
+            parts = vol_str.split()
+            go_idx = parts.index("Go")
+            go = float(parts[go_idx-1]) if go_idx > 0 else 0
+            total_go = go
+        
+        elif "Mo" in vol_str:
+            parts = vol_str.split()
+            mo_idx = parts.index("Mo")
+            mo = float(parts[mo_idx-1]) if mo_idx > 0 else 0
+            total_go = mo/1024
+            
+        elif "Ko" in vol_str:
+            parts = vol_str.split()
+            ko_idx = parts.index("Ko")
+            ko = float(parts[ko_idx-1]) if ko_idx > 0 else 0
+            total_go = ko/(1024*1024)
+        
+        else:
+            try:
+                total_go = float(vol_str)
+            except:
+                return 0
+                
+        return total_go
+    except:
+        return 0
 
 def main():
     st.title("🔗 Fusion et analyse de fichiers CSV")
