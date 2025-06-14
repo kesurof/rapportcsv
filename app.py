@@ -312,51 +312,173 @@ def create_excel_file(dataframe, analysis_df=None):
         
         # 2. Feuille d'analyse de consommation DATA (si disponible)
         if analysis_df is not None and not analysis_df.empty:
-            # PARTIE EXISTANTE POUR LA FEUILLE MOYENNE CONSO DATA
-            # [Code existant pour la feuille "Moyenne conso DATA"]
+            # Créer une copie du DataFrame pour la manipulation
+            export_df = analysis_df.copy()
             
-            # [Garder tout votre code existant ici]
+            # Identifier toutes les colonnes de volume (fixes et mensuelles)
+            fixed_cols = ["Nom de la rubrique de niveau 1", "Numéro de l'utilisateur", 
+                         "Nom de l'utilisateur", "Prénom de l'utilisateur", "Numéro de téléphone"]
+            all_volume_cols = [col for col in export_df.columns if col not in fixed_cols]
             
-            # 3. Créer la nouvelle feuille "Résumé par période"
-            if not dataframe.empty:
-                # Filtrer les données pour "Depuis le mobile" et "Communications incluses" ou "Communications facturées"
-                resume_df = dataframe[
-                    (dataframe["Nom de la rubrique de niveau 1"].str.contains("Depuis le mobile", na=False)) &
-                    (dataframe["Nom de la rubrique de niveau 2"].str.contains("Communications incluses|Communications facturées", na=False, regex=True))
-                ].copy()
+            # Créer un nouveau DataFrame pour l'export avec valeurs numériques
+            numeric_df = export_df.copy()
+            
+            # Convertir les colonnes de volume en valeurs numériques
+            for col in all_volume_cols:
+                numeric_df[col] = numeric_df[col].apply(parse_volume_text)
+            
+            # Calculer les totaux pour chaque colonne numérique
+            totals = {}
+            for col in all_volume_cols:
+                totals[col] = numeric_df[col].sum()
+            
+            # Créer une ligne de total
+            total_row = {col: "" for col in numeric_df.columns}
+            for col in fixed_cols:
+                if col == "Nom de l'utilisateur":
+                    total_row[col] = "TOTAL"
+                else:
+                    total_row[col] = ""
+            
+            for col in all_volume_cols:
+                total_row[col] = totals[col]
+            
+            # Ajouter la ligne de total au DataFrame
+            numeric_df = pd.concat([numeric_df, pd.DataFrame([total_row])], ignore_index=True)
+            
+            # Exporter le DataFrame numérique vers Excel
+            numeric_df.to_excel(
+                writer,
+                sheet_name='Moyenne conso DATA',
+                index=False
+            )
+            
+            # Récupérer le classeur et la feuille de travail
+            workbook = writer.book
+            worksheet = writer.sheets['Moyenne conso DATA']
+            
+            # Obtenir les dimensions de la table
+            num_rows = len(numeric_df)
+            num_cols = len(numeric_df.columns)
+            table_range = f"A1:{get_column_letter(num_cols)}{num_rows + 1}"
+            
+            # Importer les classes nécessaires pour les tableaux Excel
+            from openpyxl.worksheet.table import Table, TableStyleInfo
+            
+            # Créer un tableau et y appliquer un style
+            table = Table(displayName="ConsommationData", ref=table_range)
+            
+            # Appliquer le style "TableStyleMedium16" (bleu moyen 16)
+            table.tableStyleInfo = TableStyleInfo(
+                name="TableStyleMedium16",
+                showFirstColumn=False,
+                showLastColumn=False,
+                showRowStripes=True,
+                showColumnStripes=False
+            )
+            
+            # Ajouter le tableau à la feuille de travail
+            worksheet.add_table(table)
+            
+            # Figer les volets en cellule F2
+            worksheet.freeze_panes = 'F2'
+            
+            # Appliquer un format simple pour afficher les volumes en Go avec 2 décimales
+            go_format = '0.00" Go"'
+            
+            # Appliquer le format aux colonnes de volume
+            for col_idx, col_name in enumerate(numeric_df.columns):
+                if col_name not in fixed_cols:
+                    # Appliquer le format à toutes les cellules de la colonne y compris la ligne total
+                    for row in range(2, len(numeric_df) + 2):
+                        cell = worksheet.cell(row=row, column=col_idx + 1)
+                        cell.number_format = go_format
+            
+            # Mettre en évidence la ligne de total avec une police en gras
+            for col_idx in range(1, num_cols + 1):
+                cell = worksheet.cell(row=num_rows + 1, column=col_idx)
+                cell.font = openpyxl.styles.Font(bold=True)
+            
+            # Ajuster automatiquement la largeur des colonnes
+            for col_idx, column in enumerate(numeric_df):
+                column_letter = get_column_letter(col_idx + 1)
+                # Calculer la largeur maximale en fonction du contenu
+                max_length = 0
+                # Vérifier l'en-tête
+                header_length = len(str(column)) + 2  # +2 pour un peu d'espace supplémentaire
+                max_length = max(max_length, header_length)
                 
-                if not resume_df.empty:
-                    # Créer des colonnes pour tous les mois disponibles dans l'ordre décroissant
-                    # Extraire tous les mois uniques de la première ligne de l'export
-                    # Format des colonnes: mai-25, mai-25, avr-25, avr-25, etc.
-                    
-                    # Identifier les colonnes de période (mois-année)
-                    period_columns = []
-                    qty_columns = []
-                    amount_columns = []
-                    
-                    # Parcourir les colonnes par paires (Qté facturées / Montant Facturé)
-                    i = 0
-                    headers = list(dataframe.columns)
-                    while i < len(headers):
-                        if "Qté facturées" in headers[i] and i + 1 < len(headers) and "Montant Facturé" in headers[i + 1]:
-                            # Extraire la période à partir de la colonne
-                            period = headers[i].replace("Qté facturées", "").strip()
-                            if period:  # S'assurer qu'une période valide a été trouvée
-                                period_columns.append(period)
-                                qty_columns.append(headers[i])
-                                amount_columns.append(headers[i + 1])
-                            i += 2  # Passer à la paire suivante
-                        else:
-                            i += 1
-                    
+                # Vérifier toutes les valeurs dans la colonne
+                for i in range(len(numeric_df)):
+                    cell_value = str(numeric_df.iloc[i, col_idx])
+                    if col_idx < len(fixed_cols):
+                        # Pour les colonnes textuelles
+                        cell_length = len(cell_value) + 2
+                    else:
+                        # Pour les colonnes numériques (format X.XX Go)
+                        cell_length = 10  # Taille standard pour les valeurs en Go
+                    max_length = max(max_length, cell_length)
+                
+                # Définir la largeur de la colonne avec une limite maximale
+                max_length = min(max_length, 40)  # Limiter à 40 pour éviter des colonnes trop larges
+                worksheet.column_dimensions[column_letter].width = max_length
+            
+            # Adapter la hauteur de ligne pour l'en-tête
+            worksheet.row_dimensions[1].height = 25
+
+        # 3. NOUVELLE FEUILLE "Résumé par période" - traitée APRÈS la feuille "Moyenne conso DATA"
+        # Ajoutons du logging pour débugger
+        print("Création de la feuille Résumé par période")
+        
+        # Vérifier que dataframe n'est pas vide
+        if not dataframe.empty:
+            print(f"DataFrame source contient {len(dataframe)} lignes")
+            
+            # Filtrer les données pour "Depuis le mobile" et "Communications incluses" ou "Communications facturées"
+            mask_niveau1 = dataframe["Nom de la rubrique de niveau 1"].str.contains("Depuis le mobile", na=False)
+            mask_niveau2 = dataframe["Nom de la rubrique de niveau 2"].str.contains("Communications incluses|Communications facturées", na=False, regex=True)
+            resume_df = dataframe[mask_niveau1 & mask_niveau2].copy()
+            
+            print(f"Après filtrage: {len(resume_df)} lignes")
+            
+            if not resume_df.empty:
+                # Identifier les colonnes de période en cherchant les paires "Qté facturées" / "Montant Facturé"
+                period_pairs = []
+                headers = list(dataframe.columns)
+                
+                print(f"En-têtes disponibles: {headers}")
+                
+                for i in range(len(headers)):
+                    if "Qté facturées" in headers[i] and i+1 < len(headers) and "Montant Facturé" in headers[i+1]:
+                        # La période est le préfixe commun (comme "mai-25 ")
+                        period = headers[i].split("Qté facturées")[0].strip()
+                        if period:
+                            period_pairs.append((period, headers[i], headers[i+1]))
+                
+                print(f"Paires de périodes identifiées: {period_pairs}")
+                
+                if period_pairs:
                     # Créer un DataFrame pour le résumé
-                    resume_summary = resume_df[["Nom de la rubrique de niveau 1", "Nom de la rubrique de niveau 2", "Nom de la sous-rubrique"]].copy()
+                    resume_columns = ["Nom de la rubrique de niveau 1", "Nom de la rubrique de niveau 2", "Nom de la sous-rubrique"]
+                    for period, _, _ in period_pairs:
+                        resume_columns.append(f"{period} Qté facturées")
+                        resume_columns.append(f"{period} Montant Facturé")
                     
-                    # Ajouter des colonnes pour chaque période (une pour Qté, une pour Montant)
-                    for period, qty_col, amount_col in zip(period_columns, qty_columns, amount_columns):
-                        resume_summary[f"{period} Qté facturées"] = resume_df[qty_col]
-                        resume_summary[f"{period} Montant Facturé"] = resume_df[amount_col]
+                    resume_summary = pd.DataFrame(columns=resume_columns)
+                    
+                    # Remplir avec les données filtrées
+                    for _, row in resume_df.iterrows():
+                        new_row = {
+                            "Nom de la rubrique de niveau 1": row["Nom de la rubrique de niveau 1"],
+                            "Nom de la rubrique de niveau 2": row["Nom de la rubrique de niveau 2"],
+                            "Nom de la sous-rubrique": row["Nom de la sous-rubrique"]
+                        }
+                        
+                        for period, qty_col, amount_col in period_pairs:
+                            new_row[f"{period} Qté facturées"] = row[qty_col] if qty_col in row else ""
+                            new_row[f"{period} Montant Facturé"] = row[amount_col] if amount_col in row else ""
+                        
+                        resume_summary = pd.concat([resume_summary, pd.DataFrame([new_row])], ignore_index=True)
                     
                     # Exporter vers Excel
                     resume_summary.to_excel(
@@ -376,8 +498,15 @@ def create_excel_file(dataframe, analysis_df=None):
                     # Créer un tableau avec style
                     from openpyxl.worksheet.table import Table, TableStyleInfo
                     
+                    # Vérifier si le nom de table existe déjà
+                    table_name = "ResumePeriode"
+                    i = 1
+                    while table_name in [t.name for t in workbook._tables.values()]:
+                        table_name = f"ResumePeriode{i}"
+                        i += 1
+                    
                     # Créer un tableau et y appliquer un style
-                    table = Table(displayName="ResumePeriode", ref=table_range)
+                    table = Table(displayName=table_name, ref=table_range)
                     
                     # Appliquer le style "TableStyleMedium16" (bleu moyen 16)
                     table.tableStyleInfo = TableStyleInfo(
