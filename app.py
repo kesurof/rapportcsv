@@ -245,6 +245,9 @@ def analyser_consommation_data(df):
     else:
         result["Volume_Moy_4_Mois"] = result["Volume_Moy_Total"]
     
+    # AJOUT : Trier le dataframe par volume total décroissant
+    result = result.sort_values(by="Volume_Total", ascending=False)
+    
     # Formater les totaux et moyennes en utilisant le même format que les volumes mensuels
     result["Total (Go)"] = result["Volume_Total"].apply(format_volume)
     result["Moyenne (Go) 4 mois"] = result["Volume_Moy_4_Mois"].apply(format_volume)
