@@ -316,7 +316,7 @@ def create_excel_file(dataframe, analysis_df=None):
             
             # Identifier toutes les colonnes de volume (fixes et mensuelles)
             fixed_cols = ["Nom de la rubrique de niveau 1", "Numéro de l'utilisateur", 
-                          "Nom de l'utilisateur", "Prénom de l'utilisateur", "Numéro de téléphone"]
+                         "Nom de l'utilisateur", "Prénom de l'utilisateur", "Numéro de téléphone"]
             all_volume_cols = [col for col in export_df.columns if col not in fixed_cols]
             
             # Créer un nouveau DataFrame pour l'export avec valeurs numériques
@@ -346,7 +346,6 @@ def create_excel_file(dataframe, analysis_df=None):
             # Appliquer le format aux colonnes de volume
             for col_idx, col_name in enumerate(numeric_df.columns):
                 if col_name not in fixed_cols:
-                    col_letter = get_column_letter(col_idx + 1)
                     # Appliquer le format à toutes les cellules de la colonne sauf l'en-tête
                     for row in range(2, len(numeric_df) + 2):
                         cell = worksheet.cell(row=row, column=col_idx + 1)
