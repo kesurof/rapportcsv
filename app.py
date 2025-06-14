@@ -67,8 +67,12 @@ def analyser_consommation_data(df):
         st.warning("⚠️ Aucune donnée commençant par 'Echanges' trouvée")
         return None
     
-    # CORRECTION: Après avoir créé la colonne Mois-Année et traduit les mois
     # Extraire les périodes de facturation et convertir en format date
+    if "Période de la facture" not in filtered_df.columns:
+        st.error("❌ Colonne 'Période de la facture' manquante dans les données")
+        return None
+    
+    # Convertir la colonne de période au format date en utilisant .loc
     filtered_df.loc[:, "Date de facturation"] = pd.to_datetime(
         filtered_df["Période de la facture"],
         format="%d/%m/%Y", 
@@ -108,10 +112,6 @@ def analyser_consommation_data(df):
         st.error(f"❌ Colonnes manquantes: {', '.join(missing_cols)}")
         return None
     
-    # Identifier tous les mois distincts et les trier du plus récent au plus ancien
-    all_months = filtered_df["Date de facturation"].dt.to_period("M").sort_values(ascending=False).unique()
-    month_labels = [pd.Period(m).strftime("%B-%y") for m in all_months]
-    
     # Colonne pour les volumes
     volume_col = None
     possible_volume_cols = ["Volume consommé", "Volume Data", "Volume", "Quantité ou volume"]
@@ -124,11 +124,12 @@ def analyser_consommation_data(df):
         st.error("❌ Aucune colonne de volume trouvée")
         return None
     
-    # Convertir les volumes en octets (Go, Mo, Ko)
+    # Fonctions pour le traitement des volumes
     def parse_volume(vol_str):
+        """Convertit une chaîne de volume en Go"""
         try:
             if isinstance(vol_str, (int, float)):
-                return vol_str  # Déjà un nombre
+                return vol_str
             
             if pd.isna(vol_str) or vol_str == "":
                 return 0
@@ -136,7 +137,6 @@ def analyser_consommation_data(df):
             total_bytes = 0
             
             # Gérer différents formats possibles
-            # Format "X Go Y Mo Z Ko"
             if "Go" in vol_str and "Mo" in vol_str and "Ko" in vol_str:
                 parts = vol_str.split()
                 go_idx = parts.index("Go")
@@ -149,7 +149,6 @@ def analyser_consommation_data(df):
                 
                 total_bytes = go * 1024 * 1024 * 1024 + mo * 1024 * 1024 + ko * 1024
             
-            # Format "X Go Y Mo"
             elif "Go" in vol_str and "Mo" in vol_str:
                 parts = vol_str.split()
                 go_idx = parts.index("Go")
@@ -160,28 +159,24 @@ def analyser_consommation_data(df):
                 
                 total_bytes = go * 1024 * 1024 * 1024 + mo * 1024 * 1024
             
-            # Format "X Go"
             elif "Go" in vol_str:
                 parts = vol_str.split()
                 go_idx = parts.index("Go")
                 go = float(parts[go_idx-1]) if go_idx > 0 else 0
                 total_bytes = go * 1024 * 1024 * 1024
             
-            # Format "X Mo"
             elif "Mo" in vol_str:
                 parts = vol_str.split()
                 mo_idx = parts.index("Mo")
                 mo = float(parts[mo_idx-1]) if mo_idx > 0 else 0
                 total_bytes = mo * 1024 * 1024
                 
-            # Format "X Ko"
             elif "Ko" in vol_str:
                 parts = vol_str.split()
                 ko_idx = parts.index("Ko")
                 ko = float(parts[ko_idx-1]) if ko_idx > 0 else 0
                 total_bytes = ko * 1024
             
-            # Format numérique
             else:
                 try:
                     total_bytes = float(vol_str)
@@ -192,23 +187,37 @@ def analyser_consommation_data(df):
         except:
             return 0
     
+    def format_volume(vol_go):
+        """Convertit un volume en Go en format texte 'X Go Y Mo Z Ko'"""
+        try:
+            if pd.isna(vol_go) or vol_go == 0:
+                return "0 Ko"
+                
+            go = int(vol_go)
+            mo_decimal = (vol_go - go) * 1024
+            mo = int(mo_decimal)
+            ko = int((mo_decimal - mo) * 1024)
+            
+            result = ""
+            if go > 0:
+                result += f"{go} Go "
+            if mo > 0:
+                result += f"{mo} Mo "
+            if ko > 0:
+                result += f"{ko} Ko"
+            
+            return result.strip() if result else "0 Ko"
+        except:
+            return "0 Ko"
+    
     # Appliquer la conversion en utilisant .loc
     filtered_df.loc[:, "Volume_Go"] = filtered_df[volume_col].apply(parse_volume)
     
-    # Créer un dataframe résultat avec les colonnes fixes
-    result = filtered_df.groupby(required_cols).agg({
-        "Volume_Go": "sum"  # Somme totale de la consommation
-    }).reset_index()
-    
-    # Format sur 2 décimales
-    result["Total (Go)"] = result["Volume_Go"].round(2)
-    
-    # CORRECTION: Pour le pivot et l'ordre des mois
     # Création d'une table de correspondance entre les mois-années et leurs dates de tri
     month_order = filtered_df.drop_duplicates("Mois-Année")[["Mois-Année", "Date_tri"]]
     month_order = dict(zip(month_order["Mois-Année"], month_order["Date_tri"]))
     
-    # Ajouter les colonnes dynamiques par mois
+    # Ajouter les colonnes dynamiques par mois (pivot)
     pivot_df = filtered_df.pivot_table(
         index=required_cols,
         columns="Mois-Année",
@@ -217,34 +226,31 @@ def analyser_consommation_data(df):
         fill_value=0
     ).reset_index()
     
-    # CORRECTION: Trier les colonnes de mois du plus récent au plus ancien
+    # Trier les colonnes de mois du plus récent au plus ancien
     month_cols = [col for col in pivot_df.columns if col not in required_cols]
-    # Trier les colonnes de mois par date décroissante
     month_cols = sorted(month_cols, key=lambda x: month_order.get(x, ""), reverse=True)
-    
-    # Réorganiser le DataFrame avec les colonnes dans le bon ordre
     pivot_df = pivot_df[required_cols + month_cols]
     
-    # Fusionner avec le dataframe résultat
-    result = pd.merge(result, pivot_df, on=required_cols, how="left")
+    # Créer la base du dataframe résultat
+    result = pivot_df.copy()
     
-    # CORRECTION: Calcul des moyennes - utiliser des valeurs numériques
-    # Les colonnes de mois contiennent maintenant des valeurs numériques (Go)
-    if month_cols:
-        # Moyenne de tous les mois
-        result["Moyenne (Go) total"] = result[month_cols].mean(axis=1).round(2)
-        
-        # Moyenne des 4 derniers mois (ou moins si moins de 4 mois disponibles)
-        last_4_months = month_cols[:min(4, len(month_cols))]
-        if last_4_months:
-            result["Moyenne (Go) 4 mois"] = result[last_4_months].mean(axis=1).round(2)
-        else:
-            result["Moyenne (Go) 4 mois"] = result["Moyenne (Go) total"]
+    # Calculer le total en Go et les moyennes
+    result["Volume_Total"] = result[month_cols].sum(axis=1)
+    
+    # Calculer les moyennes
+    result["Volume_Moy_Total"] = result[month_cols].mean(axis=1)
+    
+    if len(month_cols) >= 4:
+        result["Volume_Moy_4_Mois"] = result[month_cols[:4]].mean(axis=1)
     else:
-        result["Moyenne (Go) total"] = 0
-        result["Moyenne (Go) 4 mois"] = 0
+        result["Volume_Moy_4_Mois"] = result["Volume_Moy_Total"]
     
-    # CORRECTION: Appliquer le formatage aux colonnes mensuelles APRÈS avoir calculé les moyennes
+    # Formater les totaux et moyennes en utilisant le même format que les volumes mensuels
+    result["Total (Go)"] = result["Volume_Total"].apply(format_volume)
+    result["Moyenne (Go) 4 mois"] = result["Volume_Moy_4_Mois"].apply(format_volume)
+    result["Moyenne (Go) total"] = result["Volume_Moy_Total"].apply(format_volume)
+    
+    # Formater chaque colonne mensuelle
     for month in month_cols:
         result[month] = result[month].apply(format_volume)
     
@@ -252,35 +258,15 @@ def analyser_consommation_data(df):
     final_cols = required_cols + ["Total (Go)", "Moyenne (Go) 4 mois", "Moyenne (Go) total"] + month_cols
     result = result[final_cols]
     
+    # Supprimer les colonnes temporaires
+    result = result.drop(columns=["Volume_Total", "Volume_Moy_Total", "Volume_Moy_4_Mois"], errors="ignore")
+    
     return result
 
-def format_volume(vol_go):
-    """Convertit un volume en Go en format texte 'X Go Y Mo Z Ko'"""
-    try:
-        if pd.isna(vol_go) or vol_go == 0:
-            return "0 Ko"
-            
-        go = int(vol_go)
-        mo_decimal = (vol_go - go) * 1024
-        mo = int(mo_decimal)
-        ko = int((mo_decimal - mo) * 1024)
-        
-        result = ""
-        if go > 0:
-            result += f"{go} Go "
-        if mo > 0:
-            result += f"{mo} Mo "
-        if ko > 0:
-            result += f"{ko} Ko"
-        
-        return result.strip() if result else "0 Ko"
-    except:
-        return "0 Ko"
-
+# Mise à jour de la fonction create_excel_file pour conserver uniquement les parties essentielles
 def create_excel_file(dataframe, analysis_df=None):
     """
     Crée un fichier Excel contenant toutes les feuilles d'analyse
-    dans l'ordre : 'Export', puis 'Moyenne conso DATA'
     """
     excel_buffer = io.BytesIO()
     
@@ -300,44 +286,8 @@ def create_excel_file(dataframe, analysis_df=None):
                 index=False
             )
             
-            # Appliquer la mise en forme à la feuille "Moyenne conso DATA"
-            workbook = writer.book
-            worksheet = writer.sheets['Moyenne conso DATA']
-            
-            # Appliquer le format pour les colonnes de total et moyennes (colonnes F, G, H)
-            # Correction de la séquence d'échappement
-            nombre_format = r'# ##0,000\ "Go"'
-            
-            # Trouver les indices des colonnes Total et Moyenne
-            total_col = None
-            moy_4_mois_col = None
-            moy_total_col = None
-            
-            for idx, col in enumerate(analysis_df.columns):
-                if col == "Total (Go)":
-                    total_col = idx
-                elif col == "Moyenne (Go) 4 mois":
-                    moy_4_mois_col = idx
-                elif col == "Moyenne (Go) total":
-                    moy_total_col = idx
-            
-            # Appliquer les formats si les colonnes existent
-            if total_col is not None:
-                for row in range(2, len(analysis_df) + 2):  # +2 car Excel commence à 1 et il y a une ligne d'en-tête
-                    cell = worksheet.cell(row=row, column=total_col + 1)  # +1 car openpyxl commence à 1
-                    cell.number_format = nombre_format
-                    
-            if moy_4_mois_col is not None:
-                for row in range(2, len(analysis_df) + 2):
-                    cell = worksheet.cell(row=row, column=moy_4_mois_col + 1)
-                    cell.number_format = nombre_format
-                    
-            if moy_total_col is not None:
-                for row in range(2, len(analysis_df) + 2):
-                    cell = worksheet.cell(row=row, column=moy_total_col + 1)
-                    cell.number_format = nombre_format
-            
             # Figer les volets en cellule F2
+            worksheet = writer.sheets['Moyenne conso DATA']
             worksheet.freeze_panes = 'F2'
     
     excel_buffer.seek(0)
