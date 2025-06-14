@@ -398,6 +398,33 @@ def create_excel_file(dataframe, analysis_df=None):
             for col_idx in range(1, num_cols + 1):
                 cell = worksheet.cell(row=num_rows + 1, column=col_idx)
                 cell.font = openpyxl.styles.Font(bold=True)
+            
+            # Ajuster automatiquement la largeur des colonnes
+            for col_idx, column in enumerate(numeric_df):
+                column_letter = get_column_letter(col_idx + 1)
+                # Calculer la largeur maximale en fonction du contenu
+                max_length = 0
+                # Vérifier l'en-tête
+                header_length = len(str(column)) + 2  # +2 pour un peu d'espace supplémentaire
+                max_length = max(max_length, header_length)
+                
+                # Vérifier toutes les valeurs dans la colonne
+                for i in range(len(numeric_df)):
+                    cell_value = str(numeric_df.iloc[i, col_idx])
+                    if col_idx < len(fixed_cols):
+                        # Pour les colonnes textuelles
+                        cell_length = len(cell_value) + 2
+                    else:
+                        # Pour les colonnes numériques (format X.XX Go)
+                        cell_length = 10  # Taille standard pour les valeurs en Go
+                    max_length = max(max_length, cell_length)
+                
+                # Définir la largeur de la colonne avec une limite maximale
+                max_length = min(max_length, 40)  # Limiter à 40 pour éviter des colonnes trop larges
+                worksheet.column_dimensions[column_letter].width = max_length
+            
+            # Adapter la hauteur de ligne pour l'en-tête
+            worksheet.row_dimensions[1].height = 25
     
     excel_buffer.seek(0)
     return excel_buffer
