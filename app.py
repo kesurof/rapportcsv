@@ -98,9 +98,9 @@ def analyser_consommation_data(df):
     all_months = filtered_df["Date de facturation"].dt.to_period("M").sort_values(ascending=False).unique()
     month_labels = [pd.Period(m).strftime("%B-%y") for m in all_months]
     
-    # Colonne pour les volumes
+    # Colonne pour les volumes - Ajout de "Quantité ou volume" à la liste des colonnes possibles
     volume_col = None
-    possible_volume_cols = ["Volume consommé", "Volume Data", "Volume"]
+    possible_volume_cols = ["Volume consommé", "Volume Data", "Volume", "Quantité ou volume"]
     for col in possible_volume_cols:
         if col in filtered_df.columns:
             volume_col = col
