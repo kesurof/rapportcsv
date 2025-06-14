@@ -268,7 +268,54 @@ def analyser_consommation_data(df):
     
     return result
 
-# Mise à jour de la fonction create_excel_file pour conserver uniquement les parties essentielles
+# Remplacer la fonction parse_volume_text par celle-ci
+def parse_volume_text(vol_str):
+    """Convertit une chaîne de volume formatée en Go (valeur numérique)"""
+    try:
+        # Cas des valeurs déjà numériques
+        if isinstance(vol_str, (int, float)):
+            return float(vol_str)
+        
+        if pd.isna(vol_str) or vol_str == "":
+            return 0
+        
+        # Expression plus simple: convertir directement les valeurs 
+        # stockées dans la colonne Volume_Total, Volume_Moy_Total et Volume_Moy_4_Mois
+        if vol_str in ["Volume_Total", "Volume_Moy_Total", "Volume_Moy_4_Mois"]:
+            return 0
+        
+        # Pour une meilleure approche, utiliser la même logique que dans parse_volume
+        if "Go" in vol_str or "Mo" in vol_str or "Ko" in vol_str:
+            go, mo, ko = 0, 0, 0
+            
+            parts = vol_str.split()
+            for i in range(0, len(parts) - 1, 2):
+                try:
+                    value = float(parts[i])
+                    unit = parts[i + 1]
+                    
+                    if unit == "Go":
+                        go = value
+                    elif unit == "Mo":
+                        mo = value
+                    elif unit == "Ko":
+                        ko = value
+                except:
+                    pass
+            
+            # Convertir tout en Go
+            total_go = go + mo / 1024 + ko / (1024 * 1024)
+            return total_go
+        else:
+            try:
+                return float(vol_str)
+            except:
+                return 0
+    
+    except Exception as e:
+        return 0
+
+# Remplacer la fonction create_excel_file par celle-ci
 def create_excel_file(dataframe, analysis_df=None):
     """
     Crée un fichier Excel contenant toutes les feuilles d'analyse
@@ -288,32 +335,23 @@ def create_excel_file(dataframe, analysis_df=None):
             # Créer une copie du DataFrame pour la manipulation
             export_df = analysis_df.copy()
             
-            # Reconvertir les colonnes de volume formatées en valeurs numériques
-            # pour le tri dans Excel
+            # Conserver les colonnes d'origine pour les valeurs de volume formatées
             volume_cols = ["Total (Go)", "Moyenne (Go) 4 mois", "Moyenne (Go) total"]
             
-            for col in volume_cols:
-                if col in export_df.columns:
-                    # Stocker les valeurs formatées dans une colonne temporaire
-                    export_df[f"{col}_formatted"] = export_df[col]
-                    
-                    # Reconvertir les volumes textuels en nombres pour le tri
-                    export_df[col] = export_df[col].apply(lambda x: parse_volume_text(x))
+            # Créer un nouveau DataFrame pour l'export
+            numeric_df = export_df.copy()
             
-            # Reconvertir également les colonnes mensuelles
-            month_cols = [col for col in export_df.columns 
-                         if col not in volume_cols + [f"{c}_formatted" for c in volume_cols] 
-                         and col not in ["Nom de la rubrique de niveau 1", "Numéro de l'utilisateur", 
-                                         "Nom de l'utilisateur", "Prénom de l'utilisateur", "Numéro de téléphone"]]
+            # Identifier toutes les colonnes de volume (fixes et mensuelles)
+            fixed_cols = ["Nom de la rubrique de niveau 1", "Numéro de l'utilisateur", 
+                         "Nom de l'utilisateur", "Prénom de l'utilisateur", "Numéro de téléphone"]
+            all_volume_cols = [col for col in numeric_df.columns if col not in fixed_cols]
             
-            for col in month_cols:
-                # Stocker le format texte
-                export_df[f"{col}_formatted"] = export_df[col]
-                # Convertir en nombre
-                export_df[col] = export_df[col].apply(lambda x: parse_volume_text(x))
+            # Convertir les colonnes de volume en valeurs numériques
+            for col in all_volume_cols:
+                numeric_df[col] = numeric_df[col].apply(parse_volume_text)
             
-            # Exporter le DataFrame vers Excel
-            export_df.to_excel(
+            # Exporter le DataFrame numérique vers Excel
+            numeric_df.to_excel(
                 writer,
                 sheet_name='Moyenne conso DATA',
                 index=False
@@ -326,61 +364,18 @@ def create_excel_file(dataframe, analysis_df=None):
             # Figer les volets en cellule F2
             worksheet.freeze_panes = 'F2'
             
-            # Appliquer un format personnalisé pour afficher les valeurs comme "X Go Y Mo Z Ko"
-            # tout en gardant les valeurs numériques pour le tri
+            # Appliquer un format personnalisé pour afficher les volumes
             custom_format = r'[>=1]0" Go "0" Mo "0" Ko";[>=0.001]0" Mo "0" Ko";0" Ko"'
             
-            # Appliquer le format aux colonnes numériques
-            for col_idx, col_name in enumerate(export_df.columns):
-                if col_name in volume_cols or col_name in month_cols:
-                    # +1 car openpyxl commence à 1, et pour toutes les lignes sauf l'en-tête
-                    for row in range(2, len(export_df) + 2):
+            # Appliquer le format aux colonnes de volume
+            for col_idx, col_name in enumerate(numeric_df.columns):
+                if col_name not in fixed_cols:
+                    for row in range(2, len(numeric_df) + 2):
                         cell = worksheet.cell(row=row, column=col_idx + 1)
                         cell.number_format = custom_format
-                
-                # Masquer les colonnes formatées
-                if "_formatted" in col_name:
-                    worksheet.column_dimensions[get_column_letter(col_idx + 1)].hidden = True
     
     excel_buffer.seek(0)
     return excel_buffer
-
-# Ajouter cette fonction pour convertir du texte "X Go Y Mo Z Ko" en nombre décimal
-def parse_volume_text(vol_str):
-    """Convertit une chaîne de volume formatée en Go (valeur numérique)"""
-    try:
-        if isinstance(vol_str, (int, float)):
-            return float(vol_str)
-        
-        if pd.isna(vol_str) or vol_str == "":
-            return 0
-        
-        # Pour déboguer et comprendre le problème
-        # st.write(f"Conversion de: '{vol_str}'")
-        
-        # Approche plus robuste pour extraire les nombres et unités
-        parts = str(vol_str).split()
-        total_go = 0
-        
-        # Parcourir les parties par paires (nombre, unité)
-        for i in range(0, len(parts) - 1, 2):
-            try:
-                value = float(parts[i])
-                unit = parts[i + 1]
-                
-                if unit == "Go":
-                    total_go += value
-                elif unit == "Mo":
-                    total_go += value / 1024
-                elif unit == "Ko":
-                    total_go += value / (1024 * 1024)
-            except (ValueError, IndexError):
-                continue
-        
-        return total_go
-    except Exception as e:
-        # st.write(f"Erreur lors de la conversion: {e}")
-        return 0
 
 def main():
     st.title("🔗 Fusion et analyse de fichiers CSV")
