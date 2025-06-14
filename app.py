@@ -58,6 +58,8 @@ def analyser_consommation_data(df):
         st.error("❌ Colonne 'Nom de la sous-rubrique' manquante dans les données")
         return None
     
+    # Corriger les valeurs NaN avant d'appliquer startswith
+    df["Nom de la sous-rubrique"] = df["Nom de la sous-rubrique"].fillna("")
     filtered_df = df[df["Nom de la sous-rubrique"].str.startswith("Echanges")]
     
     if filtered_df.empty:
