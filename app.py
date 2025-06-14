@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import zipfile
 import io
+import openpyxl.styles
 # Ajoutez cette ligne avec les autres imports
 from openpyxl.utils import get_column_letter
 
@@ -326,6 +327,25 @@ def create_excel_file(dataframe, analysis_df=None):
             for col in all_volume_cols:
                 numeric_df[col] = numeric_df[col].apply(parse_volume_text)
             
+            # Calculer les totaux pour chaque colonne numérique
+            totals = {}
+            for col in all_volume_cols:
+                totals[col] = numeric_df[col].sum()
+            
+            # Créer une ligne de total
+            total_row = {col: "" for col in numeric_df.columns}
+            for col in fixed_cols:
+                if col == "Nom de l'utilisateur":
+                    total_row[col] = "TOTAL"
+                else:
+                    total_row[col] = ""
+            
+            for col in all_volume_cols:
+                total_row[col] = totals[col]
+            
+            # Ajouter la ligne de total au DataFrame
+            numeric_df = pd.concat([numeric_df, pd.DataFrame([total_row])], ignore_index=True)
+            
             # Exporter le DataFrame numérique vers Excel
             numeric_df.to_excel(
                 writer,
@@ -333,9 +353,32 @@ def create_excel_file(dataframe, analysis_df=None):
                 index=False
             )
             
-            # Appliquer les formats et l'affichage
+            # Récupérer le classeur et la feuille de travail
             workbook = writer.book
             worksheet = writer.sheets['Moyenne conso DATA']
+            
+            # Obtenir les dimensions de la table
+            num_rows = len(numeric_df)
+            num_cols = len(numeric_df.columns)
+            table_range = f"A1:{get_column_letter(num_cols)}{num_rows + 1}"
+            
+            # Importer les classes nécessaires pour les tableaux Excel
+            from openpyxl.worksheet.table import Table, TableStyleInfo
+            
+            # Créer un tableau et y appliquer un style
+            table = Table(displayName="ConsommationData", ref=table_range)
+            
+            # Appliquer le style "TableStyleMedium16" (bleu moyen 16)
+            table.tableStyleInfo = TableStyleInfo(
+                name="TableStyleMedium16",
+                showFirstColumn=False,
+                showLastColumn=False,
+                showRowStripes=True,
+                showColumnStripes=False
+            )
+            
+            # Ajouter le tableau à la feuille de travail
+            worksheet.add_table(table)
             
             # Figer les volets en cellule F2
             worksheet.freeze_panes = 'F2'
@@ -346,10 +389,15 @@ def create_excel_file(dataframe, analysis_df=None):
             # Appliquer le format aux colonnes de volume
             for col_idx, col_name in enumerate(numeric_df.columns):
                 if col_name not in fixed_cols:
-                    # Appliquer le format à toutes les cellules de la colonne sauf l'en-tête
+                    # Appliquer le format à toutes les cellules de la colonne y compris la ligne total
                     for row in range(2, len(numeric_df) + 2):
                         cell = worksheet.cell(row=row, column=col_idx + 1)
                         cell.number_format = go_format
+            
+            # Mettre en évidence la ligne de total avec une police en gras
+            for col_idx in range(1, num_cols + 1):
+                cell = worksheet.cell(row=num_rows + 1, column=col_idx)
+                cell.font = openpyxl.styles.Font(bold=True)
     
     excel_buffer.seek(0)
     return excel_buffer
