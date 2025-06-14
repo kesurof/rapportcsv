@@ -59,8 +59,9 @@ def analyser_consommation_data(df):
         return None
     
     # Corriger les valeurs NaN avant d'appliquer startswith
+    df = df.copy()  # Créer une copie explicite du DataFrame
     df["Nom de la sous-rubrique"] = df["Nom de la sous-rubrique"].fillna("")
-    filtered_df = df[df["Nom de la sous-rubrique"].str.startswith("Echanges")]
+    filtered_df = df[df["Nom de la sous-rubrique"].str.startswith("Echanges")].copy()  # Créer une copie explicite
     
     if filtered_df.empty:
         st.warning("⚠️ Aucune donnée commençant par 'Echanges' trouvée")
@@ -71,13 +72,15 @@ def analyser_consommation_data(df):
         st.error("❌ Colonne 'Période de la facture' manquante dans les données")
         return None
     
-    # Convertir la colonne de période au format date
-    filtered_df["Date de facturation"] = pd.to_datetime(filtered_df["Période de la facture"], 
-                                                      format="%d/%m/%Y", 
-                                                      errors="coerce")
+    # Convertir la colonne de période au format date en utilisant .loc
+    filtered_df.loc[:, "Date de facturation"] = pd.to_datetime(
+        filtered_df["Période de la facture"],
+        format="%d/%m/%Y", 
+        errors="coerce"
+    )
     
-    # Extraire le mois et l'année au format "mois-aa"
-    filtered_df["Mois-Année"] = filtered_df["Date de facturation"].dt.strftime("%B-%y")
+    # Extraire le mois et l'année au format "mois-aa" en utilisant .loc
+    filtered_df.loc[:, "Mois-Année"] = filtered_df["Date de facturation"].dt.strftime("%B-%y")
     
     # Colonnes fixes requises
     required_cols = [
@@ -98,7 +101,7 @@ def analyser_consommation_data(df):
     all_months = filtered_df["Date de facturation"].dt.to_period("M").sort_values(ascending=False).unique()
     month_labels = [pd.Period(m).strftime("%B-%y") for m in all_months]
     
-    # Colonne pour les volumes - Ajout de "Quantité ou volume" à la liste des colonnes possibles
+    # Colonne pour les volumes
     volume_col = None
     possible_volume_cols = ["Volume consommé", "Volume Data", "Volume", "Quantité ou volume"]
     for col in possible_volume_cols:
@@ -178,8 +181,8 @@ def analyser_consommation_data(df):
         except:
             return 0
     
-    # Appliquer la conversion
-    filtered_df["Volume_Go"] = filtered_df[volume_col].apply(parse_volume)
+    # Appliquer la conversion en utilisant .loc
+    filtered_df.loc[:, "Volume_Go"] = filtered_df[volume_col].apply(parse_volume)
     
     # Créer un dataframe résultat avec les colonnes fixes
     result = filtered_df.groupby(required_cols).agg({
