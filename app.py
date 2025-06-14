@@ -254,6 +254,29 @@ def analyser_consommation_data(df):
     
     return result
 
+def format_volume(vol_go):
+    """Convertit un volume en Go en format texte 'X Go Y Mo Z Ko'"""
+    try:
+        if pd.isna(vol_go) or vol_go == 0:
+            return "0 Ko"
+            
+        go = int(vol_go)
+        mo_decimal = (vol_go - go) * 1024
+        mo = int(mo_decimal)
+        ko = int((mo_decimal - mo) * 1024)
+        
+        result = ""
+        if go > 0:
+            result += f"{go} Go "
+        if mo > 0:
+            result += f"{mo} Mo "
+        if ko > 0:
+            result += f"{ko} Ko"
+        
+        return result.strip() if result else "0 Ko"
+    except:
+        return "0 Ko"
+
 def create_excel_file(dataframe, analysis_df=None):
     """
     Crée un fichier Excel contenant toutes les feuilles d'analyse
