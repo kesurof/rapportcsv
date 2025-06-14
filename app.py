@@ -67,19 +67,18 @@ def analyser_consommation_data(df):
         st.warning("⚠️ Aucune donnée commençant par 'Echanges' trouvée")
         return None
     
+    # CORRECTION: Après avoir créé la colonne Mois-Année et traduit les mois
     # Extraire les périodes de facturation et convertir en format date
-    if "Période de la facture" not in filtered_df.columns:
-        st.error("❌ Colonne 'Période de la facture' manquante dans les données")
-        return None
-    
-    # Convertir la colonne de période au format date en utilisant .loc
     filtered_df.loc[:, "Date de facturation"] = pd.to_datetime(
         filtered_df["Période de la facture"],
         format="%d/%m/%Y", 
         errors="coerce"
     )
     
-    # Extraire le mois et l'année au format "mois-aa" en utilisant .loc
+    # Créer une colonne pour le tri (format AAAAMM)
+    filtered_df.loc[:, "Date_tri"] = filtered_df["Date de facturation"].dt.strftime("%Y%m")
+    
+    # Extraire le mois et l'année au format "mois-aa"
     filtered_df.loc[:, "Mois-Année"] = filtered_df["Date de facturation"].dt.strftime("%B-%y")
     
     # Traduire les noms des mois en français
@@ -204,6 +203,11 @@ def analyser_consommation_data(df):
     # Format sur 2 décimales
     result["Total (Go)"] = result["Volume_Go"].round(2)
     
+    # CORRECTION: Pour le pivot et l'ordre des mois
+    # Création d'une table de correspondance entre les mois-années et leurs dates de tri
+    month_order = filtered_df.drop_duplicates("Mois-Année")[["Mois-Année", "Date_tri"]]
+    month_order = dict(zip(month_order["Mois-Année"], month_order["Date_tri"]))
+    
     # Ajouter les colonnes dynamiques par mois
     pivot_df = filtered_df.pivot_table(
         index=required_cols,
@@ -213,17 +217,19 @@ def analyser_consommation_data(df):
         fill_value=0
     ).reset_index()
     
-    # Réorganiser les colonnes de mois du plus récent au plus ancien
-    month_cols = pivot_df.columns.difference(required_cols)
-    pivot_df = pivot_df[required_cols + list(month_cols)]
+    # CORRECTION: Trier les colonnes de mois du plus récent au plus ancien
+    month_cols = [col for col in pivot_df.columns if col not in required_cols]
+    # Trier les colonnes de mois par date décroissante
+    month_cols = sorted(month_cols, key=lambda x: month_order.get(x, ""), reverse=True)
+    
+    # Réorganiser le DataFrame avec les colonnes dans le bon ordre
+    pivot_df = pivot_df[required_cols + month_cols]
     
     # Fusionner avec le dataframe résultat
     result = pd.merge(result, pivot_df, on=required_cols, how="left")
     
-    # Créer les colonnes de moyenne
-    # Calculer la moyenne sur tous les mois
-    month_cols = [col for col in result.columns if col not in required_cols + ["Volume_Go", "Total (Go)"]]
-    
+    # CORRECTION: Calcul des moyennes - utiliser des valeurs numériques
+    # Les colonnes de mois contiennent maintenant des valeurs numériques (Go)
     if month_cols:
         # Moyenne de tous les mois
         result["Moyenne (Go) total"] = result[month_cols].mean(axis=1).round(2)
@@ -238,24 +244,7 @@ def analyser_consommation_data(df):
         result["Moyenne (Go) total"] = 0
         result["Moyenne (Go) 4 mois"] = 0
     
-    # Convertir les volumes mensuels en format "X Go Y Mo Z Ko"
-    def format_volume(vol_go):
-        go = int(vol_go)
-        mo_decimal = (vol_go - go) * 1024
-        mo = int(mo_decimal)
-        ko = int((mo_decimal - mo) * 1024)
-        
-        result = ""
-        if go > 0:
-            result += f"{go} Go "
-        if mo > 0:
-            result += f"{mo} Mo "
-        if ko > 0:
-            result += f"{ko} Ko"
-        
-        return result.strip() if result else "0 Ko"
-    
-    # Appliquer le formatage aux colonnes mensuelles
+    # CORRECTION: Appliquer le formatage aux colonnes mensuelles APRÈS avoir calculé les moyennes
     for month in month_cols:
         result[month] = result[month].apply(format_volume)
     
