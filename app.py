@@ -190,27 +190,14 @@ def analyser_consommation_data(df):
             return 0
     
     def format_volume(vol_go):
-        """Convertit un volume en Go en format texte 'X Go Y Mo Z Ko'"""
+        """Convertit un volume en Go en format texte avec 2 décimales"""
         try:
             if pd.isna(vol_go) or vol_go == 0:
-                return "0 Ko"
+                return "0.00 Go"
                 
-            go = int(vol_go)
-            mo_decimal = (vol_go - go) * 1024
-            mo = int(mo_decimal)
-            ko = int((mo_decimal - mo) * 1024)
-            
-            result = ""
-            if go > 0:
-                result += f"{go} Go "
-            if mo > 0:
-                result += f"{mo} Mo "
-            if ko > 0:
-                result += f"{ko} Ko"
-            
-            return result.strip() if result else "0 Ko"
+            return f"{vol_go:.2f} Go"
         except:
-            return "0 Ko"
+            return "0.00 Go"
     
     # Appliquer la conversion en utilisant .loc
     filtered_df.loc[:, "Volume_Go"] = filtered_df[volume_col].apply(parse_volume)
@@ -250,14 +237,11 @@ def analyser_consommation_data(df):
     # AJOUT : Trier le dataframe par volume total décroissant
     result = result.sort_values(by="Volume_Total", ascending=False)
     
-    # Formater les totaux et moyennes en utilisant le même format que les volumes mensuels
-    result["Total (Go)"] = result["Volume_Total"].apply(format_volume)
-    result["Moyenne (Go) 4 mois"] = result["Volume_Moy_4_Mois"].apply(format_volume)
-    result["Moyenne (Go) total"] = result["Volume_Moy_Total"].apply(format_volume)
-    
-    # Formater chaque colonne mensuelle
-    for month in month_cols:
-        result[month] = result[month].apply(format_volume)
+    # Modifications apportées ici
+    # Ne pas formater les colonnes, garder les valeurs numériques
+    result["Total (Go)"] = result["Volume_Total"]
+    result["Moyenne (Go) 4 mois"] = result["Volume_Moy_4_Mois"]
+    result["Moyenne (Go) total"] = result["Volume_Moy_Total"]
     
     # Réorganiser les colonnes dans l'ordre final demandé
     final_cols = required_cols + ["Total (Go)", "Moyenne (Go) 4 mois", "Moyenne (Go) total"] + month_cols
@@ -277,11 +261,6 @@ def parse_volume_text(vol_str):
             return float(vol_str)
         
         if pd.isna(vol_str) or vol_str == "":
-            return 0
-        
-        # Expression plus simple: convertir directement les valeurs 
-        # stockées dans la colonne Volume_Total, Volume_Moy_Total et Volume_Moy_4_Mois
-        if vol_str in ["Volume_Total", "Volume_Moy_Total", "Volume_Moy_4_Mois"]:
             return 0
         
         # Pour une meilleure approche, utiliser la même logique que dans parse_volume
@@ -335,16 +314,13 @@ def create_excel_file(dataframe, analysis_df=None):
             # Créer une copie du DataFrame pour la manipulation
             export_df = analysis_df.copy()
             
-            # Conserver les colonnes d'origine pour les valeurs de volume formatées
-            volume_cols = ["Total (Go)", "Moyenne (Go) 4 mois", "Moyenne (Go) total"]
-            
-            # Créer un nouveau DataFrame pour l'export
-            numeric_df = export_df.copy()
-            
             # Identifier toutes les colonnes de volume (fixes et mensuelles)
             fixed_cols = ["Nom de la rubrique de niveau 1", "Numéro de l'utilisateur", 
-                         "Nom de l'utilisateur", "Prénom de l'utilisateur", "Numéro de téléphone"]
-            all_volume_cols = [col for col in numeric_df.columns if col not in fixed_cols]
+                          "Nom de l'utilisateur", "Prénom de l'utilisateur", "Numéro de téléphone"]
+            all_volume_cols = [col for col in export_df.columns if col not in fixed_cols]
+            
+            # Créer un nouveau DataFrame pour l'export avec valeurs numériques
+            numeric_df = export_df.copy()
             
             # Convertir les colonnes de volume en valeurs numériques
             for col in all_volume_cols:
@@ -364,15 +340,17 @@ def create_excel_file(dataframe, analysis_df=None):
             # Figer les volets en cellule F2
             worksheet.freeze_panes = 'F2'
             
-            # Appliquer un format personnalisé pour afficher les volumes
-            custom_format = r'[>=1]0" Go "0" Mo "0" Ko";[>=0.001]0" Mo "0" Ko";0" Ko"'
+            # Appliquer un format simple pour afficher les volumes en Go avec 2 décimales
+            go_format = '0.00" Go"'
             
             # Appliquer le format aux colonnes de volume
             for col_idx, col_name in enumerate(numeric_df.columns):
                 if col_name not in fixed_cols:
+                    col_letter = get_column_letter(col_idx + 1)
+                    # Appliquer le format à toutes les cellules de la colonne sauf l'en-tête
                     for row in range(2, len(numeric_df) + 2):
                         cell = worksheet.cell(row=row, column=col_idx + 1)
-                        cell.number_format = custom_format
+                        cell.number_format = go_format
     
     excel_buffer.seek(0)
     return excel_buffer
