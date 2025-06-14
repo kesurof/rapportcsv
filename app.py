@@ -584,6 +584,146 @@ def create_excel_file(dataframe, analysis_df=None):
     excel_buffer.seek(0)
     return excel_buffer
 
+# Ajoutez cette fonction pour créer la feuille Résumé par période
+def create_resume_periode_sheet(dataframe, writer):
+    """
+    Crée la feuille 'Résumé par période' dans le fichier Excel
+    """
+    import pandas as pd
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.table import Table, TableStyleInfo
+    import openpyxl.styles
+    
+    # Filtrer les données pour "Depuis le mobile" et "Communications incluses" ou "Communications facturées"
+    mobile_mask = dataframe["Nom de la rubrique de niveau 1"].str.contains("Depuis le mobile", na=False)
+    comm_mask = dataframe["Nom de la rubrique de niveau 2"].str.contains("Communications incluses|Communications facturées", na=False, regex=True)
+    resume_df = dataframe[mobile_mask & comm_mask].copy()
+    
+    # Si aucune donnée ne correspond au filtre, sortir sans créer la feuille
+    if resume_df.empty:
+        return False
+    
+    # Identifier les colonnes de base et les colonnes de période
+    base_cols = ["Nom de la rubrique de niveau 1", "Nom de la rubrique de niveau 2", "Nom de la sous-rubrique"]
+    period_cols = []
+    
+    # Rechercher les colonnes contenant "Qté facturées" et "Montant Facturé"
+    qty_cols = [col for col in dataframe.columns if "Qté facturées" in col]
+    amount_cols = [col for col in dataframe.columns if "Montant Facturé" in col]
+    
+    # Créer le nouveau DataFrame avec les colonnes de base
+    result_df = resume_df[base_cols].copy()
+    
+    # Ajouter les colonnes pour les périodes
+    for qty_col in qty_cols:
+        # Extraire la période (comme "mai-25 ")
+        period = qty_col.split("Qté facturées")[0].strip()
+        
+        # Trouver la colonne de montant correspondante
+        amount_col = [col for col in amount_cols if col.startswith(period)][0] if [col for col in amount_cols if col.startswith(period)] else None
+        
+        if period and amount_col:
+            # Ajouter les colonnes au DataFrame résultat
+            result_df[f"{period} Qté facturées"] = resume_df[qty_col]
+            result_df[f"{period} Montant Facturé"] = resume_df[amount_col]
+            
+            # Garder trace des paires de colonnes
+            period_cols.append((period, f"{period} Qté facturées", f"{period} Montant Facturé"))
+    
+    # Exporter vers Excel
+    result_df.to_excel(
+        writer,
+        sheet_name='Résumé par période',
+        index=False
+    )
+    
+    # Récupérer la feuille de travail
+    worksheet = writer.sheets['Résumé par période']
+    
+    # Obtenir les dimensions de la table
+    num_rows = len(result_df)
+    num_cols = len(result_df.columns)
+    
+    # Appliquer le style de tableau
+    table_range = f"A1:{get_column_letter(num_cols)}{num_rows + 1}"
+    
+    try:
+        # Créer un tableau et y appliquer un style
+        table = Table(displayName="ResumePeriode", ref=table_range)
+        
+        # Appliquer le style "TableStyleMedium16" (bleu moyen 16)
+        table.tableStyleInfo = TableStyleInfo(
+            name="TableStyleMedium16",
+            showFirstColumn=False,
+            showLastColumn=False,
+            showRowStripes=True,
+            showColumnStripes=False
+        )
+        
+        # Ajouter le tableau à la feuille de travail
+        worksheet.add_table(table)
+    except Exception as e:
+        # En cas d'erreur, continuer sans ajouter le tableau
+        print(f"Erreur lors de la création du tableau: {e}")
+    
+    # Figer les volets en cellule D2
+    worksheet.freeze_panes = 'D2'
+    
+    # Mettre en forme les colonnes de montant avec le format monétaire
+    for col_idx in range(1, num_cols + 1):
+        col_name = result_df.columns[col_idx - 1]
+        if "Montant Facturé" in col_name:
+            for row_idx in range(2, num_rows + 2):
+                cell = worksheet.cell(row=row_idx, column=col_idx)
+                cell.number_format = '#,##0.00 €'
+        elif "Qté facturées" in col_name:
+            for row_idx in range(2, num_rows + 2):
+                cell = worksheet.cell(row=row_idx, column=col_idx)
+                cell.number_format = '#,##0.00'
+    
+    # Ajuster automatiquement la largeur des colonnes
+    for col_idx, column in enumerate(result_df):
+        column_letter = get_column_letter(col_idx + 1)
+        
+        # Largeur basée sur l'en-tête ou contenu
+        if col_idx < len(base_cols):  # Colonnes de texte
+            max_length = len(str(column)) + 2
+            for i in range(len(result_df)):
+                cell_value = str(result_df.iloc[i, col_idx])
+                max_length = max(max_length, len(cell_value) + 2)
+            max_length = min(max_length, 40)
+        else:  # Colonnes de valeurs
+            max_length = 15
+        
+        worksheet.column_dimensions[column_letter].width = max_length
+    
+    # Adapter la hauteur de ligne pour l'en-tête
+    worksheet.row_dimensions[1].height = 25
+    
+    # Ajouter une ligne total
+    total_row_idx = num_rows + 2
+    
+    # Écrire "TOTAL" dans la première colonne
+    worksheet.cell(row=total_row_idx, column=1).value = "TOTAL"
+    worksheet.cell(row=total_row_idx, column=1).font = openpyxl.styles.Font(bold=True)
+    
+    # Calculer et écrire les totaux pour les colonnes numériques (à partir de la 4ème colonne)
+    for col_idx in range(4, num_cols + 1):
+        col_letter = get_column_letter(col_idx)
+        formula = f"=SUM({col_letter}2:{col_letter}{total_row_idx-1})"
+        cell = worksheet.cell(row=total_row_idx, column=col_idx)
+        cell.value = formula
+        cell.font = openpyxl.styles.Font(bold=True)
+        
+        # Appliquer le format approprié
+        if "Montant Facturé" in result_df.columns[col_idx - 1]:
+            cell.number_format = '#,##0.00 €'
+        else:
+            cell.number_format = '#,##0.00'
+    
+    return True
+
+
 def main():
     st.title("🔗 Fusion et analyse de fichiers CSV")
     st.markdown("---")
